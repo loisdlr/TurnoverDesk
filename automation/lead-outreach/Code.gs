@@ -331,11 +331,7 @@ function searchOsm_(area, keywords) {
       .map(tag => 'nwr' + name + '["' + tag + '"]["tourism"!~"hotel|motel|hostel"](' + bbox + ');').join('') +
     ');out center tags;';
 
-  const res = UrlFetchApp.fetch('https://overpass-api.de/api/interpreter', {
-    method: 'post', payload: { data: query }, muteHttpExceptions: true,
-  });
-  if (res.getResponseCode() !== 200) throw new Error('OpenStreetMap search failed (' + res.getResponseCode() + '). It is often busy; the next run retries.');
-  return (JSON.parse(res.getContentText()).elements || []).map(el => {
+  return (overpass_(query).elements || []).map(el => {
     const t = el.tags || {};
     const street = [t['addr:housenumber'], t['addr:street']].filter(Boolean).join(' ');
     const city = [t['addr:city'], t['addr:state']].filter(Boolean).join(', ') || area;
@@ -349,6 +345,29 @@ function searchOsm_(area, keywords) {
       address: [street, city, t['addr:postcode']].filter(Boolean).join(', '),
     };
   });
+}
+
+// Public Overpass servers serve the same OpenStreetMap data. Some refuse Google's
+// servers or are busy, so try each in turn.
+const OVERPASS_SERVERS = [
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
+  'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+  'https://overpass-api.de/api/interpreter',
+];
+
+function overpass_(query) {
+  const failures = [];
+  for (const url of OVERPASS_SERVERS) {
+    try {
+      const res = UrlFetchApp.fetch(url, { method: 'post', payload: { data: query }, muteHttpExceptions: true });
+      if (res.getResponseCode() === 200) return JSON.parse(res.getContentText());
+      failures.push(url.split('/')[2] + ' ' + res.getResponseCode());
+    } catch (e) {
+      failures.push(url.split('/')[2] + ' unreachable');
+    }
+  }
+  throw new Error('OpenStreetMap servers are busy or unreachable (' + failures.join(', ') + '). The next run retries.');
 }
 
 function searchPlaces_(query, key) {
