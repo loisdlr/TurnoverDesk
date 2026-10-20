@@ -2,7 +2,7 @@
 
 A Google Sheet that runs your outbound email on its own:
 
-1. **Finds leads.** It searches Google Maps for short-term rental managers and co-hosts in the markets you list, such as "Airbnb property management Nashville TN".
+1. **Finds leads.** It searches for short-term rental managers and co-hosts in the markets you list. The search is free and needs no key or card: it uses OpenStreetMap. If you add a Google Places API key, it searches Google Maps instead, which finds more companies but requires a card on file with Google.
 2. **Finds their email.** It reads each company's website (home, /contact, /contact-us, /about) and keeps one address, preferring one on the company's own domain.
 3. **Sends a 3-email sequence** from your Gmail on weekdays, within a daily limit. Follow-ups reply in the same thread.
 4. **Tracks everything** in the sheet. A reply, bounce or unsubscribe takes the lead out of the sequence on its own. Opens are tracked if you set that up, and the Dashboard tab shows the numbers.
@@ -15,7 +15,7 @@ It runs on Google's servers, so your computer doesn't need to be on. It isn't de
 |---|---|
 | **Dashboard** | Leads found, emailed, replied, reply rate, bounces, unsubscribes |
 | **Leads** | One row per company. You can also add rows by hand: an email alone is enough. |
-| **Searches** | The Google Maps searches. Untick **Active** to pause one. Each search re-runs every 30 days and skips leads you already have. |
+| **Searches** | One row per market. **Area** (e.g. `Austin, TX`) is used by the free OpenStreetMap search. **Query** (e.g. `Airbnb property management Nashville TN`) is used only once you add a Google Places key. Untick **Active** to pause a row. Each search re-runs every 30 days and skips leads you already have. |
 | **Templates** | The emails. Placeholders: `{{firstName}}` `{{company}}` `{{city}}` `{{bookingLink}}` `{{yourName}}` `{{website}}`. **Wait days** is the number of days after the previous email. |
 | **Settings** | Your name, postal address, daily limit and the rest |
 | **Log** | Every search, send, reply, bounce and error |
@@ -41,19 +41,20 @@ To add a first name, type it in **First name**. Without one, emails start with "
 6. Save. Go back to the sheet and reload it. A **Lead outreach** menu appears.
 7. Click **Lead outreach → Set up sheet** and approve the permissions. Google warns "unverified app" because the script is yours. Click **Advanced → Go to project**.
 
-### 2. Get a Google Places API key
-1. Go to [console.cloud.google.com](https://console.cloud.google.com) and create a project.
-2. Go to **APIs & Services → Library**, search **Places API (New)**, and enable it. Google asks you to add a billing account.
-3. Go to **APIs & Services → Credentials → Create credentials → API key**. Edit the key and, under **API restrictions**, restrict it to **Places API (New)**.
-4. Go to **Billing → Budgets & alerts** and set a budget, such as $10/month, so you're never surprised.
-5. In the sheet, click **Lead outreach → Set Google Places API key** and paste the key.
+### 2. Optional: find more leads with Google Maps
+The free search uses OpenStreetMap. Volunteers map it, so it lists fewer rental companies than Google Maps, maybe a handful to a few dozen per city. You can also paste leads in by hand: an email in the **Email** column is enough.
 
-Each search uses up to 3 requests. At the default of 3 searches a day that's roughly 270 requests a month. Google's monthly free usage typically covers that; check current pricing on the Places API page.
+When you want more leads, add a Google Places API key. It needs a card on file with Google; light use usually stays within the monthly free allowance.
+1. Go to [console.cloud.google.com](https://console.cloud.google.com) and create a project.
+2. Turn on billing, then enable **Places API (New)** under **APIs & Services → Library**.
+3. Go to **APIs & Services → Credentials → Create credentials → API key**. Restrict the key to **Places API (New)**.
+4. Go to **Billing → Budgets & alerts** and set a budget, such as $10/month.
+5. In the sheet, click **Lead outreach → Set Google Places API key (optional)** and paste the key. To go back to the free search, open the same menu item and save it empty.
 
 ### 3. Fill in Settings and check the emails
 - **Your name** and **Postal address** are required. US law (CAN-SPAM) requires a real postal address in commercial email. A PO box or virtual mailbox is fine.
 - Read the **Templates** tab and make the emails sound like you.
-- Edit **Searches** to the markets you want.
+- Edit **Searches** to the markets you want. For the free search, write the **Area** like `Austin, TX` or `Sevier County, TN`.
 
 ### 4. Try it
 1. Click **Lead outreach → Find leads now**. Leads appear in the **Leads** tab within a minute or two.
