@@ -84,7 +84,10 @@ To stop everything, click **Lead outreach → Turn automation off**.
 
 ## Rules worth knowing
 - **US leads:** CAN-SPAM allows cold B2B email as long as the subject line is honest, the email includes your postal address, there's a working opt-out, and you honor opt-outs right away. The script handles the last three. Don't edit them out.
-- **Canada and the EU** require consent before marketing email (CASL, GDPR). Keep the Searches on US markets.
+- **UK:** cold B2B email is allowed to companies (Ltd, LLP and similar) as long as you say who you are and include an opt-out. Sole traders and partnerships count as individuals and need consent first, so skip leads that look like one person's own holiday let.
+- **Australia:** the Spam Act allows email to an address a business publishes on its own website when the message relates to that business. Include your details and an opt-out, which the script does.
+- **Canada and the EU** have stricter consent rules (CASL, GDPR). Leave them out unless you've checked the rules.
+- Emails go out around 9 am US Central time. That's mid-afternoon in the UK and late night in Australia; replies still come in the next morning their time.
 - **Google Maps data:** Google's Places terms limit how long you may store place details other than the place ID. Treat the Leads tab as your working outreach list, not a database to resell or keep forever, and delete leads that don't pan out. If you'd rather use a source licensed for lead lists, Apollo or Hunter.io exports can be pasted straight into the Leads tab (an email is enough).
 - Don't scrape Airbnb or Vrbo listings, or Facebook. Their terms forbid it.
 - **Reddit:** the Conversations tab only reads public posts. Reply as yourself, be helpful first, and follow each community's rules on self-promotion. Don't send unsolicited DMs in bulk.
