@@ -45,7 +45,9 @@ const SETTINGS = [
   ['Website', 'https://turnoverdesk.com', 'Used as {{website}}.'],
   ['Daily send limit', 20, 'First emails plus follow-ups per day. Start at 20 and raise slowly; Gmail suspends accounts that blast.'],
   ['Send on weekends', false, ''],
-  ['Max searches per day', 3, 'Each search is up to 3 Google Places requests (60 results).'],
+  ['Max searches per day', 3, 'Each search is up to 3 Google Places requests (60 results), or one free OpenStreetMap search.'],
+  ['Free search keywords', 'vacation rental, vacation home, short term rental, vacation property, property management, stays, bnb, airbnb, co-host, cohost, getaways, cabin rentals',
+    'Comma-separated. The free OpenStreetMap search keeps businesses whose name contains one of these.'],
   ['Re-run searches after days', 30, ''],
   ['Skip companies containing', 'Vacasa, Evolve, AvantStay, Sonder, Airbnb, Vrbo, Marriott, Hilton, Hyatt, Hotel, Motel', 'Comma-separated. Big chains will not buy this.'],
   ['Web app URL', '', 'Optional. Paste the /exec URL from Deploy → Web app to turn on one-click unsubscribe and open tracking.'],
@@ -71,13 +73,14 @@ const DEFAULT_TEMPLATES = [
     '{{yourName}}\nTurnover Desk'],
 ];
 
+// [Google Maps query (used only with a Places API key), area for the free OpenStreetMap search]
 const DEFAULT_SEARCHES = [
-  'vacation rental management company Austin TX',
-  'Airbnb property management Nashville TN',
-  'short term rental management Scottsdale AZ',
-  'vacation rental management Gatlinburg TN',
-  'Airbnb management company Orlando FL',
-  'short term rental co-host Denver CO',
+  ['vacation rental management company Austin TX', 'Austin, TX'],
+  ['Airbnb property management Nashville TN', 'Nashville, TN'],
+  ['short term rental management Scottsdale AZ', 'Scottsdale, AZ'],
+  ['vacation rental management Gatlinburg TN', 'Sevier County, TN'],
+  ['Airbnb management company Orlando FL', 'Orange County, FL'],
+  ['short term rental co-host Denver CO', 'Denver, CO'],
 ];
 
 const GMAIL_LABEL = 'Turnover Desk leads';
@@ -89,7 +92,7 @@ const RUN_BUDGET_MS = 4.5 * 60 * 1000; // Apps Script stops runs at 6 minutes
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('Lead outreach')
     .addItem('Set up sheet', 'setup')
-    .addItem('Set Google Places API key', 'setPlacesKey')
+    .addItem('Set Google Places API key (optional)', 'setPlacesKey')
     .addSeparator()
     .addItem('Find leads now', 'findLeadsNow')
     .addItem('Send test emails to me', 'sendTestToMe')
@@ -109,10 +112,10 @@ function setup() {
   leads.getRange(2, statusCol, leads.getMaxRows() - 1, 1).setDataValidation(
     SpreadsheetApp.newDataValidation().requireValueInList(Object.values(STATUS), true).setAllowInvalid(false).build());
 
-  const searches = ensureSheet_(SHEETS.searches, ['Query', 'Active', 'Last run', 'Leads found']);
+  const searches = ensureSheet_(SHEETS.searches, ['Query', 'Area', 'Active', 'Last run', 'Leads found']);
   if (searches.getLastRow() === 1) {
-    searches.getRange(2, 2, 50, 1).insertCheckboxes();
-    searches.getRange(2, 1, DEFAULT_SEARCHES.length, 2).setValues(DEFAULT_SEARCHES.map(q => [q, true]));
+    searches.getRange(2, 3, 50, 1).insertCheckboxes();
+    searches.getRange(2, 1, DEFAULT_SEARCHES.length, 3).setValues(DEFAULT_SEARCHES.map(q => [q[0], q[1], true]));
   }
 
   const templates = ensureSheet_(SHEETS.templates, ['Step', 'Wait days', 'Subject', 'Body']);
@@ -137,16 +140,21 @@ function setup() {
   updateDashboard_();
   SpreadsheetApp.getUi().alert(
     'Set up done.\n\n1. Fill in "Your name" and "Postal address" here in Settings.\n' +
-    '2. Lead outreach → Set Google Places API key.\n3. Review the Templates and Searches tabs.\n' +
-    '4. Lead outreach → Find leads now, then Send test emails to me.\n5. Lead outreach → Turn automation on.');
+    '2. Review the Templates and Searches tabs.\n' +
+    '3. Lead outreach → Find leads now, then Send test emails to me.\n4. Lead outreach → Turn automation on.\n\n' +
+    'Leads come free from OpenStreetMap. A Google Places API key (optional) finds more.');
 }
 
 function setPlacesKey() {
   const ui = SpreadsheetApp.getUi();
-  const res = ui.prompt('Google Places API key', 'Paste the key from console.cloud.google.com (Places API (New) enabled).', ui.ButtonSet.OK_CANCEL);
+  const res = ui.prompt('Google Places API key (optional)',
+    'Paste the key from console.cloud.google.com (Places API (New) enabled). Leave it empty and press OK to go back to the free OpenStreetMap search.',
+    ui.ButtonSet.OK_CANCEL);
   if (res.getSelectedButton() !== ui.Button.OK) return;
-  PropertiesService.getScriptProperties().setProperty('PLACES_API_KEY', res.getResponseText().trim());
-  ui.alert('Saved. The key is stored in the script, not in the sheet.');
+  const key = res.getResponseText().trim();
+  const props = PropertiesService.getScriptProperties();
+  if (key) props.setProperty('PLACES_API_KEY', key); else props.deleteProperty('PLACES_API_KEY');
+  ui.alert(key ? 'Saved. Searches now use Google Maps (the Query column).' : 'Removed. Searches use free OpenStreetMap (the Area column).');
 }
 
 function turnOn() {
@@ -231,14 +239,10 @@ function withLock_(fn) {
 }
 
 // ---------------------------------------------------------------------------
-// 1. Find leads on Google Maps
+// 1. Find leads: free on OpenStreetMap, or on Google Maps if you add a Places API key
 
 function findLeads_(deadline, ignoreDailyCap) {
   const key = PropertiesService.getScriptProperties().getProperty('PLACES_API_KEY');
-  if (!key) {
-    log_('', '', 'Error', 'No Google Places API key. Use Lead outreach → Set Google Places API key.');
-    return 0;
-  }
   const s = settings_();
   const skip = String(s['Skip companies containing'] || '').split(',').map(w => w.trim().toLowerCase()).filter(String);
   const maxSearches = Number(s['Max searches per day']) || 3;
@@ -256,40 +260,81 @@ function findLeads_(deadline, ignoreDailyCap) {
   let runs = 0;
   for (const q of searches.rows) {
     if (Date.now() > deadline || (!ignoreDailyCap && runs >= maxSearches)) break;
-    if (!q.Query || !truthy_(q.Active)) continue;
+    if (!truthy_(q.Active)) continue;
+    if (key ? !q.Query : !q.Area) continue;
     if (q['Last run'] && daysSince_(q['Last run']) < rerunDays) continue;
     runs++;
 
-    let places;
+    const label = key ? q.Query : 'OpenStreetMap: ' + q.Area;
+    let found;
     try {
-      places = searchPlaces_(q.Query, key);
+      found = key ? searchPlaces_(q.Query, key) : searchOsm_(q.Area, s['Free search keywords']);
     } catch (e) {
-      log_('', '', 'Error', 'Search "' + q.Query + '": ' + e.message);
+      log_('', '', 'Error', 'Search "' + label + '": ' + e.message);
       continue;
     }
 
     let added = 0;
-    for (const p of places) {
-      const name = (p.displayName && p.displayName.text) || '';
-      const d = domain_(p.websiteUri);
+    for (const p of found) {
+      const d = domain_(p.website);
       if (seen.has('p:' + p.id) || (d && seen.has('d:' + d))) continue;
-      if (skip.some(w => name.toLowerCase().indexOf(w) !== -1 || (d && d.indexOf(w.replace(/\s+/g, '')) !== -1))) continue;
+      if (skip.some(w => p.name.toLowerCase().indexOf(w) !== -1 || (d && d.indexOf(w.replace(/\s+/g, '')) !== -1))) continue;
       seen.add('p:' + p.id);
       if (d) seen.add('d:' + d);
       fresh.push({
-        ID: newId_(), Company: name, Website: p.websiteUri || '', Phone: p.nationalPhoneNumber || '',
-        City: city_(p), Address: p.formattedAddress || '', Status: p.websiteUri ? STATUS.NEW : STATUS.NO_EMAIL,
-        Step: 0, Opens: 0, Source: q.Query, 'Place ID': p.id, Added: new Date(),
+        ID: newId_(), Company: p.name, Email: p.email || '', Website: p.website || '', Phone: p.phone || '',
+        City: p.city, Address: p.address, Status: p.website || p.email ? STATUS.NEW : STATUS.NO_EMAIL,
+        Step: 0, Opens: 0, Source: label, 'Place ID': p.id, Added: new Date(),
       });
       added++;
     }
     q['Last run'] = new Date();
     q['Leads found'] = (Number(q['Leads found']) || 0) + added;
     searches.save(q);
-    log_('', '', 'Search', '"' + q.Query + '": ' + places.length + ' results, ' + added + ' new');
+    log_('', '', 'Search', '"' + label + '": ' + found.length + ' results, ' + added + ' new');
   }
   leads.append(fresh);
   return fresh.length;
+}
+
+// Free, no key: finds businesses in an area whose name matches the keywords.
+// OpenStreetMap is volunteer-mapped, so it lists fewer companies than Google Maps.
+function searchOsm_(area, keywords) {
+  const geo = UrlFetchApp.fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' +
+    encodeURIComponent(area) + '&email=' + encodeURIComponent(myAddresses_().primary), { muteHttpExceptions: true });
+  if (geo.getResponseCode() !== 200) throw new Error('Could not look up the area (' + geo.getResponseCode() + ')');
+  const place = JSON.parse(geo.getContentText())[0];
+  if (!place) throw new Error('Area not found. Try "City, ST", for example "Austin, TX".');
+  const b = place.boundingbox.map(Number); // south, north, west, east
+  const bbox = [b[0], b[2], b[1], b[3]].join(',');
+
+  const words = String(keywords || '').split(',').map(w => w.trim()).filter(String)
+    .map(w => w.replace(/[\\"]/g, '').replace(/[.*+?^${}()|[\]]/g, '\\\\$&'));
+  if (!words.length) throw new Error('Settings: "Free search keywords" is empty.');
+  const name = '["name"~"' + words.join('|') + '",i]';
+  const query = '[out:json][timeout:90];(' +
+    ['website', 'contact:website', 'email', 'contact:email']
+      .map(tag => 'nwr' + name + '["' + tag + '"]["tourism"!~"hotel|motel|hostel"](' + bbox + ');').join('') +
+    ');out center tags;';
+
+  const res = UrlFetchApp.fetch('https://overpass-api.de/api/interpreter', {
+    method: 'post', payload: { data: query }, muteHttpExceptions: true,
+  });
+  if (res.getResponseCode() !== 200) throw new Error('OpenStreetMap search failed (' + res.getResponseCode() + '). It is often busy; the next run retries.');
+  return (JSON.parse(res.getContentText()).elements || []).map(el => {
+    const t = el.tags || {};
+    const street = [t['addr:housenumber'], t['addr:street']].filter(Boolean).join(' ');
+    const city = [t['addr:city'], t['addr:state']].filter(Boolean).join(', ') || area;
+    return {
+      id: 'osm:' + el.type + '/' + el.id,
+      name: t.name || '',
+      website: t.website || t['contact:website'] || t.url || '',
+      email: String(t.email || t['contact:email'] || '').split(/[;,\s]/)[0].toLowerCase(),
+      phone: t.phone || t['contact:phone'] || '',
+      city: city,
+      address: [street, city, t['addr:postcode']].filter(Boolean).join(', '),
+    };
+  });
 }
 
 function searchPlaces_(query, key) {
@@ -313,7 +358,13 @@ function searchPlaces_(query, key) {
       throw new Error('Places API ' + res.getResponseCode() + ': ' + res.getContentText().slice(0, 300));
     }
     const data = JSON.parse(res.getContentText());
-    (data.places || []).forEach(p => { if (p.businessStatus !== 'CLOSED_PERMANENTLY') out.push(p); });
+    (data.places || []).forEach(p => {
+      if (p.businessStatus === 'CLOSED_PERMANENTLY') return;
+      out.push({
+        id: p.id, name: (p.displayName && p.displayName.text) || '', website: p.websiteUri || '', email: '',
+        phone: p.nationalPhoneNumber || '', city: city_(p), address: p.formattedAddress || '',
+      });
+    });
     pageToken = data.nextPageToken;
     if (!pageToken) break;
   }
