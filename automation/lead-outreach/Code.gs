@@ -16,6 +16,7 @@ const SHEETS = {
   searches: 'Searches',
   templates: 'Templates',
   settings: 'Settings',
+  conversations: 'Conversations',
   log: 'Log',
 };
 
@@ -40,7 +41,7 @@ const LEAD_COLUMNS = [
 
 const SETTINGS = [
   ['Your name', '', 'Signs every email. Required.'],
-  ['Postal address', '', 'Required by US anti-spam law (CAN-SPAM). A PO box or virtual mailbox is fine.'],
+  ['Postal address', '', 'Required by US anti-spam law (CAN-SPAM). Any address where you get mail, in any country: your office or home address in the Philippines works.'],
   ['Booking link', 'https://calendly.com/turnoverdesk', 'Used as {{bookingLink}}. Each lead gets utm_content=<lead ID> so Calendly shows who booked.'],
   ['Website', 'https://turnoverdesk.com', 'Used as {{website}}.'],
   ['Daily send limit', 20, 'First emails plus follow-ups per day. Start at 20 and raise slowly; Gmail suspends accounts that blast.'],
@@ -52,6 +53,9 @@ const SETTINGS = [
   ['Skip companies containing', 'Vacasa, Evolve, AvantStay, Sonder, Airbnb, Vrbo, Marriott, Hilton, Hyatt, Hotel, Motel', 'Comma-separated. Big chains will not buy this.'],
   ['Web app URL', '', 'Optional. Paste the /exec URL from Deploy → Web app to turn on one-click unsubscribe and open tracking.'],
   ['Track opens', true, 'Only works with a Web app URL. Approximate: Apple Mail and Gmail pre-load images.'],
+  ['Reddit communities', 'airbnb_hosts, AirBnBHosts, vrbo, ShortTermRentals', 'Comma-separated subreddit names, without r/. Checked every hour for the Conversations tab.'],
+  ['Reddit keywords', 'cleaner, cleaners, cleaning, turnover, no show, no-show, missed, damage claim, damage, inspection',
+    'A post shows up in Conversations when its title or text contains one of these.'],
 ];
 
 const DEFAULT_TEMPLATES = [
@@ -98,6 +102,7 @@ function onOpen() {
     .addItem('Send test emails to me', 'sendTestToMe')
     .addItem('Send due emails now', 'sendNow')
     .addItem('Check replies now', 'checkRepliesNow')
+    .addItem('Check Reddit now', 'checkRedditNow')
     .addSeparator()
     .addItem('Turn automation on', 'turnOn')
     .addItem('Turn automation off', 'turnOff')
@@ -130,6 +135,7 @@ function setup() {
   if (missing.length) settings.getRange(settings.getLastRow() + 1, 1, missing.length, 3).setValues(missing);
   settings.setColumnWidth(1, 200).setColumnWidth(2, 320).setColumnWidth(3, 520);
 
+  conversationsSheet_();
   ensureSheet_(SHEETS.log, ['Time', 'Lead ID', 'Email', 'Event', 'Detail']);
   ensureSheet_(SHEETS.dashboard, []);
 
@@ -194,6 +200,7 @@ function dailyRun() {
 function hourlyRun() {
   withLock_(deadline => {
     checkReplies_();
+    checkReddit_();
     enrichLeads_(deadline);
     updateDashboard_();
   });
@@ -222,6 +229,13 @@ function checkRepliesNow() {
     const changed = checkReplies_();
     updateDashboard_();
     toast_(changed + ' leads updated.');
+  });
+}
+
+function checkRedditNow() {
+  withLock_(() => {
+    const added = checkReddit_();
+    toast_(added + ' new posts. See the Conversations tab.');
   });
 }
 
@@ -788,6 +802,72 @@ function updateLeadById_(id, fn) {
 function token_(id) {
   const secret = PropertiesService.getScriptProperties().getProperty('SECRET') || '';
   return Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature(String(id), secret)).slice(0, 16);
+}
+
+// ---------------------------------------------------------------------------
+// Reddit: hosts talking about the problems Turnover Desk solves. You reply yourself.
+
+const CONVERSATION_STATUS = ['New', 'Replied', 'Not relevant'];
+
+function conversationsSheet_() {
+  const sheet = ensureSheet_(SHEETS.conversations, ['Found', 'Community', 'Title', 'Link', 'Posted', 'Matched', 'Status', 'Notes']);
+  sheet.getRange(2, 7, sheet.getMaxRows() - 1, 1).setDataValidation(
+    SpreadsheetApp.newDataValidation().requireValueInList(CONVERSATION_STATUS, true).build());
+  return sheet;
+}
+
+function checkReddit_() {
+  const s = settings_();
+  const subs = String(s['Reddit communities'] || '').split(',').map(x => x.trim().replace(/^\/?r\//i, '')).filter(String);
+  const words = String(s['Reddit keywords'] || '').split(',').map(x => x.trim().toLowerCase()).filter(String);
+  if (!subs.length || !words.length) return 0;
+
+  const sheet = conversationsSheet_();
+  const known = new Set(table_(SHEETS.conversations).rows.map(r => String(r.Link)));
+  const fresh = [];
+  for (const sub of subs) {
+    let entries;
+    try {
+      entries = redditPosts_(sub);
+    } catch (e) {
+      log_('', '', 'Error', 'Reddit r/' + sub + ': ' + e.message);
+      continue;
+    }
+    for (const p of entries) {
+      if (known.has(p.link)) continue;
+      const text = (p.title + ' ' + p.body).toLowerCase();
+      const hits = words.filter(w => new RegExp('\\b' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b').test(text));
+      if (!hits.length) continue;
+      known.add(p.link);
+      fresh.push([new Date(), 'r/' + sub, p.title, p.link, p.posted, hits.join(', '), 'New', '']);
+    }
+  }
+  if (fresh.length) {
+    sheet.insertRowsAfter(1, fresh.length); // newest at the top
+    sheet.getRange(2, 1, fresh.length, fresh[0].length).setValues(fresh);
+  }
+  return fresh.length;
+}
+
+// Newest posts in a subreddit, from its public RSS feed (no Reddit account or key needed).
+function redditPosts_(sub) {
+  const res = UrlFetchApp.fetch('https://www.reddit.com/r/' + encodeURIComponent(sub) + '/new/.rss?limit=50', {
+    headers: { 'User-Agent': 'TurnoverDeskConversations/1.0 (by ' + myAddresses_().primary + ')' },
+    muteHttpExceptions: true,
+  });
+  if (res.getResponseCode() !== 200) throw new Error('HTTP ' + res.getResponseCode());
+  const root = XmlService.parse(res.getContentText()).getRootElement();
+  const ns = root.getNamespace();
+  return root.getChildren('entry', ns).map(e => {
+    const link = e.getChild('link', ns);
+    const when = e.getChildText('published', ns) || e.getChildText('updated', ns);
+    return {
+      title: e.getChildText('title', ns) || '',
+      link: link ? link.getAttribute('href').getValue() : '',
+      body: String(e.getChildText('content', ns) || '').replace(/<[^>]+>/g, ' ').replace(/&[a-z#0-9]+;/gi, ' '),
+      posted: when ? new Date(when) : '',
+    };
+  }).filter(p => p.link);
 }
 
 // ---------------------------------------------------------------------------

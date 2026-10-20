@@ -17,6 +17,7 @@ It runs on Google's servers, so your computer doesn't need to be on. It isn't de
 | **Leads** | One row per company. You can also add rows by hand: an email alone is enough. |
 | **Searches** | One row per market. **Area** (e.g. `Austin, TX`) is used by the free OpenStreetMap search. **Query** (e.g. `Airbnb property management Nashville TN`) is used only once you add a Google Places key. Untick **Active** to pause a row. Each search re-runs every 30 days and skips leads you already have. |
 | **Templates** | The emails. Placeholders: `{{firstName}}` `{{company}}` `{{city}}` `{{bookingLink}}` `{{yourName}}` `{{website}}`. **Wait days** is the number of days after the previous email. |
+| **Conversations** | New Reddit posts from hosts that mention cleaners, no-shows, missed cleans or damage. Read the post and reply yourself if you can help, then set **Status** to `Replied` or `Not relevant`. Nothing is posted for you. |
 | **Settings** | Your name, postal address, daily limit and the rest |
 | **Log** | Every search, send, reply, bounce and error |
 
@@ -52,7 +53,7 @@ When you want more leads, add a Google Places API key. It needs a card on file w
 5. In the sheet, click **Lead outreach → Set Google Places API key (optional)** and paste the key. To go back to the free search, open the same menu item and save it empty.
 
 ### 3. Fill in Settings and check the emails
-- **Your name** and **Postal address** are required. US law (CAN-SPAM) requires a real postal address in commercial email. A PO box or virtual mailbox is fine.
+- **Your name** and **Postal address** are required. US law (CAN-SPAM) requires a postal address where you can receive mail in every sales email sent to US recipients. It doesn't have to be in the US: your office or home address in the Philippines works, and so does a PO box or virtual mailbox.
 - Read the **Templates** tab and make the emails sound like you.
 - Edit **Searches** to the markets you want. For the free search, write the **Area** like `Austin, TX` or `Sevier County, TN`.
 
@@ -71,7 +72,7 @@ Without a web app URL, emails say *Reply "unsubscribe"*, and the script catches 
 ### 6. Turn it on
 Click **Lead outreach → Turn automation on**.
 - **Every day around 9 am:** checks replies, sends due follow-ups first and then first emails (up to the daily limit), runs new searches, and looks up emails.
-- **Every hour:** checks replies and bounces, looks up emails, and refreshes the Dashboard.
+- **Every hour:** checks replies and bounces, checks Reddit for the Conversations tab, looks up emails, and refreshes the Dashboard.
 
 To stop everything, click **Lead outreach → Turn automation off**.
 
@@ -85,4 +86,5 @@ To stop everything, click **Lead outreach → Turn automation off**.
 - **US leads:** CAN-SPAM allows cold B2B email as long as the subject line is honest, the email includes your postal address, there's a working opt-out, and you honor opt-outs right away. The script handles the last three. Don't edit them out.
 - **Canada and the EU** require consent before marketing email (CASL, GDPR). Keep the Searches on US markets.
 - **Google Maps data:** Google's Places terms limit how long you may store place details other than the place ID. Treat the Leads tab as your working outreach list, not a database to resell or keep forever, and delete leads that don't pan out. If you'd rather use a source licensed for lead lists, Apollo or Hunter.io exports can be pasted straight into the Leads tab (an email is enough).
-- Don't scrape Airbnb or Vrbo listings. Their terms forbid it.
+- Don't scrape Airbnb or Vrbo listings, or Facebook. Their terms forbid it.
+- **Reddit:** the Conversations tab only reads public posts. Reply as yourself, be helpful first, and follow each community's rules on self-promotion. Don't send unsolicited DMs in bulk.
